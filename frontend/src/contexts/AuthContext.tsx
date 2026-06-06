@@ -18,6 +18,7 @@ interface AuthContextValue {
   isLoading: boolean
   login: (payload: LoginPayload) => Promise<void>
   register: (payload: RegisterPayload) => Promise<void>
+  loginWithToken: (token: string, user: User) => void
   logout: () => void
 }
 
@@ -77,6 +78,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const loginWithToken = useCallback((accessToken: string, userData: User) => {
+    setToken(accessToken)
+    setUser(userData)
+  }, [])
+
   const register = useCallback(async (payload: RegisterPayload) => {
     setIsLoading(true)
     try {
@@ -100,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         register,
+        loginWithToken,
         logout,
       }}
     >

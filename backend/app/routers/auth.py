@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user
 from app.core.security import hash_password, verify_password, create_access_token
+from app.core.email_service import store_otp, verify_otp, send_otp_email
 from app.db.database import get_db
 from app.db.models import CompanyEmployee
 from app.models.user import UserCreate, UserOut, Token
@@ -115,4 +116,75 @@ async def me(current_user: Annotated[CompanyEmployee, Depends(get_current_user)]
         last_name=current_user.last_name,
         role=current_user.role,
         company_name=current_user.company_name,
+    )
+
+
+from pydantic import BaseModel
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class VerifyOTPRequest(BaseModel):
+    email: str
+    otp: str
+    new_password: str
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Generate OTP and email it. Always return 200 to avoid email enumeration."""
+    result = await db.execute(
+        select(CompanyEmployee).where(CompanyEmployee.email == payload.email.lower())
+    )
+    employee = result.scalar_one_or_none()
+
+    if employee:
+        otp = store_otp(payload.email)
+        await send_otp_email(
+            to_email=payload.email,
+            otp=otp,
+            user_name=employee.first_name
+        )
+
+    return {"message": "If this email exists, an OTP has been sent."}
+
+
+@router.post("/verify-otp", response_model=Token)
+async def verify_otp_and_reset(
+    payload: VerifyOTPRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Verify OTP and reset password, return a new JWT token."""
+    if not verify_otp(payload.email, payload.otp):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OTP"
+        )
+
+    result = await db.execute(
+        select(CompanyEmployee).where(CompanyEmployee.email == payload.email.lower())
+    )
+    employee = result.scalar_one_or_none()
+    if not employee:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    employee.password_hash = hash_password(payload.new_password)
+    await db.commit()
+    await db.refresh(employee)
+
+    token = create_access_token({"sub": str(employee.id), "role": employee.role})
+    return Token(
+        access_token=token,
+        token_type="bearer",
+        user=UserOut(
+            id=str(employee.id),
+            email=employee.email,
+            first_name=employee.first_name,
+            last_name=employee.last_name,
+            role=employee.role,
+            company_name=employee.company_name,
+        ),
     )

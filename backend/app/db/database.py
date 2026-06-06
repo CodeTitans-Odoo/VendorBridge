@@ -31,7 +31,6 @@ async def get_db() -> AsyncSession:  # type: ignore[return]
     async with AsyncSessionLocal() as session:
         yield session
 
-
 async def create_tables() -> None:
     """Create all tables by strictly executing SQL.txt."""
     import os
@@ -55,9 +54,26 @@ async def create_tables() -> None:
         else:
             sql_script = content
 
+        # Split SQL by semicolons, filtering out comments and empty statements
+        statements = []
+        for stmt in sql_script.split(";"):
+            clean_stmt = ""
+            for line in stmt.split("\n"):
+                if not line.strip().startswith("--"):
+                    clean_stmt += line + "\n"
+            clean_stmt = clean_stmt.strip()
+            if clean_stmt:
+                statements.append(clean_stmt)
+
         async with engine.begin() as conn:
-            # We execute the script directly
-            await conn.execute(text(sql_script))
+            for stmt in statements:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as e:
+                    # Ignore if table/constraint already exists
+                    if "already exists" in str(e).lower():
+                        continue
+                    raise e
             print("Successfully executed SQL.txt schema.")
     except Exception as e:
         print(f"Failed to execute SQL.txt: {e}")

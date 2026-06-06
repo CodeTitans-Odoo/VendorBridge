@@ -2,14 +2,16 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
         <Toaster
           position="top-right"
           toastOptions={{
@@ -48,8 +50,11 @@ export default function App() {
           <Route path="/purchase-orders" element={<ProtectedRoute><DashboardPage page="purchase-orders" /></ProtectedRoute>} />
           <Route path="/invoices" element={<ProtectedRoute><DashboardPage page="invoices" /></ProtectedRoute>} />
           <Route path="/approvals" element={<ProtectedRoute><DashboardPage page="approvals" /></ProtectedRoute>} />
+          <Route path="/workflows" element={<ProtectedRoute><DashboardPage page="workflows" /></ProtectedRoute>} />
           <Route path="/logs" element={<ProtectedRoute><DashboardPage page="logs" /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><DashboardPage page="users" /></ProtectedRoute>} />
+          <Route path="/analytics" element={<ProtectedRoute><DashboardPage page="analytics" /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><DashboardPage page="analytics" /></ProtectedRoute>} />
 
           {/* Unauthorized */}
           <Route
@@ -69,5 +74,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </ErrorBoundary>
   )
 }

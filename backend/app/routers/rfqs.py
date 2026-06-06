@@ -9,10 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.dependencies import require_role
+from app.core.dependencies import get_vendor_id, require_role
 from app.db.database import get_db
 from app.db.models import CompanyEmployee, RFQ, RFQItem, RFQVendor
-from app.models.schemas import RFQCreate, RFQOut, RFQUpdate
+from app.models.schemas import RFQCreate, RFQOut, RFQUpdate, RFQApprove
 
 router = APIRouter(prefix="/api/rfqs", tags=["RFQs"])
 
@@ -20,9 +20,10 @@ router = APIRouter(prefix="/api/rfqs", tags=["RFQs"])
 @router.get("/", response_model=list[RFQOut])
 async def list_rfqs(
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[
+    current_user: Annotated[
         CompanyEmployee, Depends(require_role("officer", "manager", "admin", "vendor"))
     ],
+    vendor_id: Annotated[int | None, Depends(get_vendor_id)],
     rfq_status: Optional[str] = Query(None, alias="status"),
     skip: int = 0,
     limit: int = 50,
@@ -31,11 +32,14 @@ async def list_rfqs(
         select(RFQ)
         .options(selectinload(RFQ.items), selectinload(RFQ.rfq_vendors))
         .order_by(RFQ.created_at.desc())
-        .offset(skip)
-        .limit(limit)
     )
     if rfq_status:
         q = q.where(RFQ.status == rfq_status)
+        
+    if vendor_id:
+        q = q.join(RFQVendor).where(RFQVendor.vendor_id == vendor_id).where(RFQ.status == "Open")
+        
+    q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     rfqs = result.scalars().all()
     return [_rfq_to_out(r) for r in rfqs]
@@ -51,7 +55,7 @@ async def create_rfq(
         title=payload.title,
         description=payload.description,
         deadline=payload.deadline,
-        status="Open",
+        status="Pending Approval",
         created_by=current_user.id,
     )
     db.add(rfq)
@@ -108,6 +112,28 @@ async def update_rfq(
         setattr(rfq, k, v)
     await db.commit()
     await db.refresh(rfq)
+    result = await db.execute(
+        select(RFQ)
+        .options(selectinload(RFQ.items), selectinload(RFQ.rfq_vendors))
+        .where(RFQ.id == rfq.id)
+    )
+    return _rfq_to_out(result.scalar_one())
+
+@router.post("/{rfq_id}/approve", response_model=RFQOut)
+async def approve_rfq(
+    rfq_id: int,
+    payload: RFQApprove,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[CompanyEmployee, Depends(require_role("manager", "admin"))],
+):
+    rfq = await db.get(RFQ, rfq_id)
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    
+    rfq.status = payload.status
+    await db.commit()
+    await db.refresh(rfq)
+    
     result = await db.execute(
         select(RFQ)
         .options(selectinload(RFQ.items), selectinload(RFQ.rfq_vendors))

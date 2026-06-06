@@ -71,6 +71,9 @@ class RFQUpdate(BaseModel):
     deadline: Optional[datetime] = None
     status: Optional[str] = None
 
+class RFQApprove(BaseModel):
+    status: str  # "Open" | "Rejected"
+
 
 class RFQOut(BaseModel):
     id: int

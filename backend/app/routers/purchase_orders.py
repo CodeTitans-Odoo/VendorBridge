@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_role
+from app.core.dependencies import get_vendor_id, require_role
 from app.db.database import get_db
 from app.db.models import CompanyEmployee, PurchaseOrder, Quotation
 from app.models.schemas import (
@@ -27,15 +27,17 @@ async def list_purchase_orders(
     _: Annotated[
         CompanyEmployee, Depends(require_role("officer", "manager", "admin", "vendor"))
     ],
+    current_vendor_id: Annotated[int | None, Depends(get_vendor_id)],
     skip: int = 0,
     limit: int = 50,
 ):
-    result = await db.execute(
-        select(PurchaseOrder)
-        .order_by(PurchaseOrder.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-    )
+    q = select(PurchaseOrder).order_by(PurchaseOrder.created_at.desc())
+    
+    if current_vendor_id is not None:
+        q = q.join(Quotation).where(Quotation.vendor_id == current_vendor_id)
+        
+    q = q.offset(skip).limit(limit)
+    result = await db.execute(q)
     return result.scalars().all()
 
 

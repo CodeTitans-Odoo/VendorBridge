@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, FileText, Loader2, X, Calendar, Trash2, ChevronDown, ChevronRight, Package } from 'lucide-react'
+import { Plus, FileText, Loader2, X, Calendar, Trash2, ChevronDown, ChevronRight, Package, Upload, CheckCircle2, XCircle } from 'lucide-react'
 import api from '../lib/axios'
 import toast from 'react-hot-toast'
 
@@ -12,6 +12,7 @@ interface Vendor { id: number; name: string }
 
 const STATUS_COLORS: Record<string, string> = {
   Draft: 'bg-gray-100 text-gray-600 border-gray-200',
+  'Pending Approval': 'bg-amber-100 text-amber-700 border-amber-200',
   Open: 'bg-blue-100 text-blue-700 border-blue-200',
   Closed: 'bg-purple-100 text-purple-700 border-purple-200',
   Cancelled: 'bg-red-100 text-red-700 border-red-200',
@@ -19,7 +20,16 @@ const STATUS_COLORS: Record<string, string> = {
 
 const EMPTY_ITEM: RFQItem = { product_name: '', quantity: 1, units: 'pcs', category: '' }
 
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+
 export default function RFQsPage() {
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const isVendor = user?.role === 'vendor'
+  const isOfficerOrAbove = ['officer', 'manager', 'admin'].includes(user?.role || '')
+  const canCreateOrDeleteRFQ = ['officer', 'admin'].includes(user?.role || '')
+
   const [rfqs, setRfqs] = useState<RFQ[]>([])
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,13 +37,27 @@ export default function RFQsPage() {
   const [saving, setSaving] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [form, setForm] = useState({
-    title: '', description: '', deadline: '', vendor_ids: [] as number[], items: [{ ...EMPTY_ITEM }]
+    title: '', description: '', deadline: '', vendor_ids: [] as number[], items: [{ ...EMPTY_ITEM }], attachments: [] as File[]
   })
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setForm(p => ({ ...p, attachments: [...p.attachments, ...Array.from(e.target.files!)] }))
+    }
+  }
+
+  const removeFile = (index: number) => {
+    setForm(p => ({ ...p, attachments: p.attachments.filter((_, i) => i !== index) }))
+  }
 
   const fetchData = async () => {
     try {
       setLoading(true)
-      const [rfqRes, vendorRes] = await Promise.all([api.get('/api/rfqs'), api.get('/api/vendors')])
+      const rfqRes = await api.get('/api/rfqs')
+      let vendorRes = { data: [] }
+      if (isOfficerOrAbove) {
+        vendorRes = await api.get('/api/vendors')
+      }
       setRfqs(rfqRes.data)
       setVendors(vendorRes.data)
     } catch { toast.error('Failed to load data') }
@@ -61,7 +85,7 @@ export default function RFQsPage() {
       await api.post('/api/rfqs', form)
       toast.success('RFQ created!')
       setShowPanel(false)
-      setForm({ title: '', description: '', deadline: '', vendor_ids: [], items: [{ ...EMPTY_ITEM }] })
+      setForm({ title: '', description: '', deadline: '', vendor_ids: [], items: [{ ...EMPTY_ITEM }], attachments: [] })
       fetchData()
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create RFQ') }
     finally { setSaving(false) }
@@ -73,16 +97,28 @@ export default function RFQsPage() {
     catch { toast.error('Delete failed') }
   }
 
+  const handleApproveRFQ = async (id: number, status: 'Open' | 'Rejected') => {
+    try {
+      await api.post(`/api/rfqs/${id}/approve`, { status })
+      toast.success(`RFQ ${status === 'Open' ? 'Approved' : 'Rejected'}`)
+      fetchData()
+    } catch { toast.error('Action failed') }
+  }
+
   return (
     <div className="animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Request for Quotations</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Create and manage procurement requests</p>
+          <h1 className="text-2xl font-bold text-gray-900">{isVendor ? 'Invited RFQs' : 'Request for Quotations'}</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {isVendor ? 'View and respond to procurement requests' : 'Create and manage procurement requests'}
+          </p>
         </div>
-        <button onClick={() => setShowPanel(true)} className="flex items-center gap-2 btn-primary w-auto px-5 py-2.5">
-          <Plus size={16} /> New RFQ
-        </button>
+        {canCreateOrDeleteRFQ && (
+          <button onClick={() => setShowPanel(true)} className="flex items-center gap-2 btn-primary w-auto px-5 py-2.5">
+            <Plus size={16} /> New RFQ
+          </button>
+        )}
       </div>
 
       {/* RFQ List */}
@@ -116,9 +152,34 @@ export default function RFQsPage() {
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[rfq.status] || STATUS_COLORS.Draft}`}>
                   {rfq.status}
                 </span>
-                <button onClick={e => { e.stopPropagation(); handleDelete(rfq.id) }} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors">
-                  <Trash2 size={14} />
-                </button>
+                {isVendor && rfq.status === 'Open' && (
+                  <button onClick={e => { e.stopPropagation(); navigate(`/quotations?rfq_id=${rfq.id}`) }} className="btn-primary py-1 px-3 text-xs">
+                    Submit Quotation
+                  </button>
+                )}
+                {rfq.status === 'Open' && ['officer', 'admin'].includes(user?.role || '') && (
+                  <button 
+                    onClick={e => { e.stopPropagation(); navigate(`/quotations?rfq_id=${rfq.id}`) }}
+                    className="btn-primary py-1 px-3 text-xs"
+                  >
+                    View Quotations
+                  </button>
+                )}
+                {rfq.status === 'Pending Approval' && ['manager', 'admin'].includes(user?.role || '') && (
+                  <div className="flex gap-2">
+                    <button onClick={e => { e.stopPropagation(); handleApproveRFQ(rfq.id, 'Open') }} className="p-1.5 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition-colors" title="Approve">
+                      <CheckCircle2 size={15} />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); handleApproveRFQ(rfq.id, 'Rejected') }} className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors" title="Reject">
+                      <XCircle size={15} />
+                    </button>
+                  </div>
+                )}
+                {canCreateOrDeleteRFQ && (
+                  <button onClick={e => { e.stopPropagation(); handleDelete(rfq.id) }} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors">
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -206,6 +267,36 @@ export default function RFQsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Attachments UI (Simulated) */}
+              <div>
+                <label className="form-label"><Upload size={10} className="inline mr-1" /> Attachments</label>
+                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-xl bg-surface-50 hover:bg-gray-50 transition-colors">
+                  <div className="space-y-1 text-center">
+                    <Upload className="mx-auto h-8 w-8 text-gray-400" />
+                    <div className="flex text-sm text-gray-600 justify-center">
+                      <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-brand-600 hover:text-brand-500 focus-within:outline-none">
+                        <span>Upload a file</span>
+                        <input id="file-upload" name="file-upload" type="file" className="sr-only" multiple onChange={handleFileChange} />
+                      </label>
+                      <p className="pl-1">or drag and drop</p>
+                    </div>
+                    <p className="text-xs text-gray-500">PDF, DOCX up to 10MB</p>
+                  </div>
+                </div>
+                {form.attachments.length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {form.attachments.map((file, idx) => (
+                      <li key={idx} className="flex items-center justify-between py-2 px-3 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                        <span className="truncate flex-1 text-gray-700 font-medium">{file.name}</span>
+                        <button onClick={() => removeFile(idx)} className="text-red-400 hover:text-red-600 p-1">
+                          <X size={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               {/* Invite Vendors */}

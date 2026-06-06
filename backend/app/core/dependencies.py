@@ -37,7 +37,7 @@ async def get_current_user(
         select(CompanyEmployee).where(CompanyEmployee.id == int(user_id))
     )
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
+    if user is None:
         raise credentials_exc
     return user
 
@@ -62,3 +62,20 @@ def require_role(*roles: str):
 OfficerOrAbove = require_role("officer", "manager", "admin")
 ManagerOrAbove = require_role("manager", "admin")
 AdminOnly = require_role("admin")
+
+async def get_vendor_id(
+    current_user: Annotated[CompanyEmployee, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+) -> int | None:
+    """Returns the Vendor.id if the current user is a vendor."""
+    if current_user.role != "vendor":
+        return None
+    from app.db.models import Vendor
+    result = await db.execute(select(Vendor).where(Vendor.email == current_user.email))
+    vendor = result.scalar_one_or_none()
+    if not vendor:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="No vendor profile linked to this account."
+        )
+    return vendor.id

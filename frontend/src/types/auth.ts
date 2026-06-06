@@ -8,9 +8,7 @@ export interface User {
   phone?: string
   country?: string
   role: UserRole
-  additional_info?: string
-  is_active: boolean
-  created_at: string
+  company_name?: string
 }
 
 export interface AuthState {
@@ -33,5 +31,7 @@ export interface RegisterPayload {
   phone?: string
   country?: string
   role: UserRole
-  additional_info?: string
+  company_name?: string
+  gst_number?: string
+  category?: string
 }

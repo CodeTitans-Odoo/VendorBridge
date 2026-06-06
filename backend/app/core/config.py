@@ -25,6 +25,13 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
+    # Email (SMTP) — set in .env to enable real emails
+    # Gmail: enable 2FA → generate App Password → use it as SMTP_PASS
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""  # e.g. yourapp@gmail.com
+    SMTP_PASS: str = ""  # Gmail App Password (16 chars, no spaces)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
