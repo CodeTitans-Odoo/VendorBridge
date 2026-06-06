@@ -30,14 +30,22 @@ async def get_current_user(
         raise credentials_exc
 
     user_id: str | None = payload.get("sub")
+    role: str | None = payload.get("role")
+
     if user_id is None:
         raise credentials_exc
 
-    result = await db.execute(
-        select(CompanyEmployee).where(CompanyEmployee.id == int(user_id))
-    )
+    from app.db.models import Vendor, CompanyEmployee
+
+    if role == "vendor":
+        result = await db.execute(select(Vendor).where(Vendor.id == int(user_id)))
+    else:
+        result = await db.execute(
+            select(CompanyEmployee).where(CompanyEmployee.id == int(user_id))
+        )
+        
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
+    if user is None:
         raise credentials_exc
     return user
 

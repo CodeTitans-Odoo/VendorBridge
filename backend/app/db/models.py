@@ -4,20 +4,20 @@ Table order follows foreign-key dependency.
 """
 
 from sqlalchemy import (
-    BigInteger,
+    CheckConstraint,
     CheckConstraint,
     Column,
     Date,
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -27,7 +27,7 @@ from app.db.database import Base
 class CompanyEmployee(Base):
     __tablename__ = "company_employees"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     company_name = Column(String(255))
@@ -37,7 +37,7 @@ class CompanyEmployee(Base):
     phone_number = Column(String(20))
     country = Column(String(100))
     manager_id = Column(
-        BigInteger, ForeignKey("company_employees.id", ondelete="SET NULL")
+        Integer, ForeignKey("company_employees.id", ondelete="SET NULL")
     )
 
     # relationships
@@ -52,11 +52,12 @@ class CompanyEmployee(Base):
 class Vendor(Base):
     __tablename__ = "vendors"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
     category = Column(String(100))
     gst_number = Column(String(15), unique=True)
     email = Column(String(255))
+    password_hash = Column(String(255), nullable=False, server_default="unknown")
     phone_number = Column(String(20))
     status = Column(String(50), default="Pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -69,13 +70,13 @@ class Vendor(Base):
 class RFQ(Base):
     __tablename__ = "rfqs"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(255), nullable=False)
     description = Column(Text)
     deadline = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(50), default="Draft")
     created_by = Column(
-        BigInteger, ForeignKey("company_employees.id", ondelete="SET NULL")
+        Integer, ForeignKey("company_employees.id", ondelete="SET NULL")
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -97,8 +98,8 @@ class RFQItem(Base):
     __tablename__ = "rfq_items"
     __table_args__ = (CheckConstraint("quantity > 0"),)
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    rfq_id = Column(BigInteger, ForeignKey("rfqs.id", ondelete="CASCADE"))
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rfq_id = Column(Integer, ForeignKey("rfqs.id", ondelete="CASCADE"))
     product_name = Column(String(255), nullable=False)
     quantity = Column(Integer, nullable=False)
     category = Column(String(100))
@@ -113,10 +114,10 @@ class RFQVendor(Base):
     __table_args__ = (UniqueConstraint("rfq_id", "vendor_id"),)
 
     rfq_id = Column(
-        BigInteger, ForeignKey("rfqs.id", ondelete="CASCADE"), primary_key=True
+        Integer, ForeignKey("rfqs.id", ondelete="CASCADE"), primary_key=True
     )
     vendor_id = Column(
-        BigInteger, ForeignKey("vendors.id", ondelete="CASCADE"), primary_key=True
+        Integer, ForeignKey("vendors.id", ondelete="CASCADE"), primary_key=True
     )
 
     rfq = relationship("RFQ", back_populates="rfq_vendors")
@@ -131,9 +132,9 @@ class Quotation(Base):
         CheckConstraint("delivery_days >= 0"),
     )
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    rfq_id = Column(BigInteger, ForeignKey("rfqs.id", ondelete="CASCADE"))
-    vendor_id = Column(BigInteger, ForeignKey("vendors.id", ondelete="CASCADE"))
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rfq_id = Column(Integer, ForeignKey("rfqs.id", ondelete="CASCADE"))
+    vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="CASCADE"))
     total_price = Column(Numeric(12, 2), nullable=False, default=0.00)
     delivery_days = Column(Integer, nullable=False)
     notes = Column(Text)
@@ -160,8 +161,8 @@ class QuotationItem(Base):
         CheckConstraint("total >= 0"),
     )
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    quotation_id = Column(BigInteger, ForeignKey("quotations.id", ondelete="CASCADE"))
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quotation_id = Column(Integer, ForeignKey("quotations.id", ondelete="CASCADE"))
     product_name = Column(String(255), nullable=False)
     qty = Column(Integer, nullable=False)
     unit_price = Column(Numeric(12, 2), nullable=False)
@@ -174,10 +175,10 @@ class QuotationItem(Base):
 class Approval(Base):
     __tablename__ = "approvals"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    quotation_id = Column(BigInteger, ForeignKey("quotations.id", ondelete="CASCADE"))
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quotation_id = Column(Integer, ForeignKey("quotations.id", ondelete="CASCADE"))
     approver_id = Column(
-        BigInteger, ForeignKey("company_employees.id", ondelete="SET NULL")
+        Integer, ForeignKey("company_employees.id", ondelete="SET NULL")
     )
     status = Column(String(50), default="Pending")
     remarks = Column(Text)
@@ -194,9 +195,9 @@ class Approval(Base):
 class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     po_number = Column(String(100), unique=True, nullable=False)
-    quotation_id = Column(BigInteger, ForeignKey("quotations.id", ondelete="RESTRICT"))
+    quotation_id = Column(Integer, ForeignKey("quotations.id", ondelete="RESTRICT"))
     status = Column(String(50), default="Pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -216,8 +217,8 @@ class Invoice(Base):
         CheckConstraint("grand_total >= 0"),
     )
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    po_id = Column(BigInteger, ForeignKey("purchase_orders.id", ondelete="RESTRICT"))
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    po_id = Column(Integer, ForeignKey("purchase_orders.id", ondelete="RESTRICT"))
     invoice_number = Column(String(100), unique=True, nullable=False)
     subtotal = Column(Numeric(12, 2), nullable=False)
     gst = Column(Numeric(12, 2), nullable=False)
@@ -235,13 +236,13 @@ class Invoice(Base):
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(
-        BigInteger, ForeignKey("company_employees.id", ondelete="SET NULL")
+        Integer, ForeignKey("company_employees.id", ondelete="SET NULL")
     )
     action = Column(String(255), nullable=False)
     module = Column(String(100), nullable=False)
-    details = Column(JSONB)
+    details = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("CompanyEmployee", back_populates="activity_logs")

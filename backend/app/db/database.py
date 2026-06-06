@@ -33,31 +33,12 @@ async def get_db() -> AsyncSession:  # type: ignore[return]
 
 
 async def create_tables() -> None:
-    """Create all tables by strictly executing SQL.txt."""
-    import os
-    import re
-    from sqlalchemy import text
-
-    # Locate SQL.txt in the root of the project
-    base_dir = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    )
-    sql_path = os.path.join(base_dir, "SQL.txt")
-
+    """Create all tables using SQLAlchemy's metadata.create_all to ensure cross-database compatibility (e.g. SQLite handles BIGSERIAL as INTEGER properly)."""
+    import app.db.models  # Ensure models are registered
+    
     try:
-        with open(sql_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Extract SQL between ```sql and ```
-        match = re.search(r"```sql(.*?)```", content, re.DOTALL)
-        if match:
-            sql_script = match.group(1).strip()
-        else:
-            sql_script = content
-
         async with engine.begin() as conn:
-            # We execute the script directly
-            await conn.execute(text(sql_script))
-            print("Successfully executed SQL.txt schema.")
+            await conn.run_sync(Base.metadata.create_all)
+            print("Successfully created database tables using SQLAlchemy.")
     except Exception as e:
-        print(f"Failed to execute SQL.txt: {e}")
+        print(f"Failed to create database tables: {e}")

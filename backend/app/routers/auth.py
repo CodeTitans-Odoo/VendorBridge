@@ -24,54 +24,70 @@ async def register(
     payload: UserCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    # Check duplicate
-    existing = await db.execute(
-        select(CompanyEmployee).where(CompanyEmployee.email == payload.email.lower())
+    from app.db.models import Vendor, CompanyEmployee
+
+    email_lower = payload.email.lower()
+
+    # Check duplicate in both tables
+    existing_emp = await db.execute(
+        select(CompanyEmployee).where(CompanyEmployee.email == email_lower)
     )
-    if existing.scalar_one_or_none():
+    existing_vend = await db.execute(
+        select(Vendor).where(Vendor.email == email_lower)
+    )
+    
+    if existing_emp.scalar_one_or_none() or existing_vend.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered",
         )
 
-    employee = CompanyEmployee(
-        email=payload.email.lower(),
-        password_hash=hash_password(payload.password),
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-        role=payload.role,
-        phone_number=getattr(payload, "phone", None),
-        country=getattr(payload, "country", None),
-        company_name=getattr(payload, "company_name", None),
-    )
-    db.add(employee)
-    await db.flush()  # get employee.id without committing
-
-    # If role is vendor, also create the Vendor record
     if payload.role == "vendor":
-        from app.db.models import Vendor
-
-        vendor_record = Vendor(
+        # Create Vendor only
+        new_user = Vendor(
             name=payload.company_name or f"{payload.first_name} {payload.last_name}",
             category=getattr(payload, "category", None),
             gst_number=getattr(payload, "gst_number", None),
-            email=payload.email.lower(),
+            email=email_lower,
             phone_number=getattr(payload, "phone", None),
-            status="Pending",
+            status="Active",
+            password_hash=hash_password(payload.password),
         )
-        db.add(vendor_record)
+    else:
+        # Create Employee only
+        new_user = CompanyEmployee(
+            email=email_lower,
+            password_hash=hash_password(payload.password),
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            role=payload.role,
+            phone_number=getattr(payload, "phone", None),
+            country=getattr(payload, "country", None),
+            company_name=getattr(payload, "company_name", None),
+        )
 
+    db.add(new_user)
     await db.commit()
-    await db.refresh(employee)
+    await db.refresh(new_user)
 
-    return UserOut(
-        id=str(employee.id),
-        email=employee.email,
-        first_name=employee.first_name,
-        last_name=employee.last_name,
-        role=employee.role,
-        company_name=employee.company_name,
-    )
+    if payload.role == "vendor":
+        return UserOut(
+            id=str(new_user.id),
+            email=new_user.email,
+            first_name=payload.first_name,  # Vendor model only has 'name' in SQL.txt
+            last_name=payload.last_name,
+            role="vendor",
+            company_name=new_user.name,
+        )
+    else:
+        return UserOut(
+            id=str(new_user.id),
+            email=new_user.email,
+            first_name=new_user.first_name,
+            last_name=new_user.last_name,
+            role=new_user.role,
+            company_name=new_user.company_name,
+        )
 
 
 @router.post("/login", response_model=Token)
@@ -79,40 +95,66 @@ async def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    from app.db.models import Vendor, CompanyEmployee
+
+    email_lower = form.username.lower()
+
+    # Check employee first
     result = await db.execute(
-        select(CompanyEmployee).where(CompanyEmployee.email == form.username.lower())
+        select(CompanyEmployee).where(CompanyEmployee.email == email_lower)
     )
     employee = result.scalar_one_or_none()
 
-    if not employee or not verify_password(form.password, employee.password_hash):
+    user = None
+    role = None
+    
+    if employee:
+        user = employee
+        role = employee.role
+    else:
+        # Check vendor
+        result_v = await db.execute(
+            select(Vendor).where(Vendor.email == email_lower)
+        )
+        vendor = result_v.scalar_one_or_none()
+        if vendor:
+            user = vendor
+            role = "vendor"
+
+    # We need to verify password against user.password_hash
+    if not user or not hasattr(user, "password_hash") or not verify_password(form.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = create_access_token({"sub": str(employee.id), "role": employee.role})
+    token = create_access_token({"sub": str(user.id), "role": role})
+    
+    first_name = getattr(user, "first_name", "")
+    last_name = getattr(user, "last_name", "")
+    company_name = getattr(user, "company_name", getattr(user, "name", None))
+    
+    if role == "vendor" and not first_name:
+        parts = getattr(user, "name", "").split(" ", 1)
+        first_name = parts[0] if parts else ""
+        last_name = parts[1] if len(parts) > 1 else ""
+
     return Token(
         access_token=token,
         token_type="bearer",
         user=UserOut(
-            id=str(employee.id),
-            email=employee.email,
-            first_name=employee.first_name,
-            last_name=employee.last_name,
-            role=employee.role,
-            company_name=employee.company_name,
+            id=str(user.id),
+            email=user.email,
+            first_name=first_name,
+            last_name=last_name,
+            role=role,
+            company_name=company_name,
         ),
     )
 
 
 @router.get("/me", response_model=UserOut)
-async def me(current_user: Annotated[CompanyEmployee, Depends(get_current_user)]):
-    return UserOut(
-        id=str(current_user.id),
-        email=current_user.email,
-        first_name=current_user.first_name,
-        last_name=current_user.last_name,
-        role=current_user.role,
-        company_name=current_user.company_name,
-    )
+async def me(current_user: Annotated[dict, Depends(get_current_user)]):
+    # current_user could be Vendor or CompanyEmployee now, depends on what get_current_user returns
+    return current_user
